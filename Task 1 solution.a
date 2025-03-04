@@ -1,0 +1,106 @@
+    MOV SP, #0x8000         ; Initialize stack pointer to address 0x8000
+
+    MOV R0, #0x700          ; Load data array start address into R0 (ARRAY starts at 0x700)
+    MOV R1, #0x2000         ; Load result storage start address into R1 (Result starts at 0x2000)
+
+    LDR R7, H               ; Result block terminator (0xFFFFFFFF)
+    LDR R6, C               ; End marker (0x88888888)
+
+LOOP
+    LDR R2, [R0]        ; Load operation code (first word in structure)
+    CMP R2, R6           ; Check if operation code is the end marker (0x88888888)
+    BEQ END_PROG         ; If it is, end the program
+
+    LDR R3, [R0, #4]     ; Load first operand (second word in structure)
+    LDR R4, [R0, #8]     ; Load second operand (third word in structure)
+
+    CMP R2, #0           ; Check if addition (0)
+    BEQ ADD_OP
+    CMP R2, #1           ; Check if subtraction (1)
+    BEQ SUB_OP
+    CMP R2, #2           ; Check if multiplication (2)
+    BEQ MUL_OP
+    CMP R2, #3           ; Check if division (3)
+    BEQ DIV_OP
+    B NXT
+
+NXT 
+    ADD R0, R0, #12      ; Move to next structure (3 words, 12 bytes per structure)
+    B LOOP
+
+ADD_OP
+    ADD R5, R3, R4       ; Perform addition
+    STR R5, [R1], #4     ; Store result and increment result address
+    B NXT
+
+SUB_OP
+    SUB R5, R3, R4       ; Perform subtraction
+    STR R5, [R1], #4     ; Store result and increment result address
+    B NXT
+
+MUL_OP
+    MUL R5, R3, R4       ; Perform multiplication
+    STR R5, [R1], #4     ; Store result and increment result address
+    B NXT
+
+DIV_OP
+    STMFD SP!, {R3, R4}  ; Store operands and link register on the stack
+    BL DIVIDE            ; Call division subroutine
+    MOV R5, R10          ; Move result from R10 to R5
+    STR R5, [R1], #4     ; Store result and increment result address
+    LDMFD SP!, {R3, R4}  ; Restore registers from the stack
+    B NXT
+
+DIVIDE
+    MOV R10, #0          ; Initialize quotient to 0
+    MOV R9, R3           ; Move dividend to R9
+    CMP R4,#0           ; Check if divisor is zero
+    BEQ NXT             ; If divisor is zero, return 0
+
+DIV_LOOP
+    CMP R9, R4           ; Compare R9 (quotient) with R4 (divisor)
+    BGT CONTINUE         ; Branch if R9 > R4 (greater than)
+    B DIV_END            ; Otherwise, exit the loop
+
+CONTINUE
+    SUB R9, R9, R4       ; Subtract R4 from R9 (quotient)
+    ADD R10, R10, #1     ; Increment R10 (quotient count)
+    B DIV_LOOP           ; Repeat the loop
+
+DIV_ZERO
+    MOV R10, #0          ; Return 0 if division by zero
+    MOV PC, LR           ; Return from subroutine
+
+DIV_END  
+     MOV PC, LR           ; Return from division subroutine
+
+END_PROG
+     STR R7, [R1]         ; Store the end marker (0xFFFFFFFF) for the result block
+     SWI 123456           ; Software interrupt to halt the program
+
+
+H    DW 0xFFFFFFFF
+C    DW 0x88888888
+
+     ORG 0x700               ; Set starting address for ARRAY at 0x700
+D    DW 0x3        ; Operation: Addition
+     DW 0xFFFFFEFF ; Operand 1
+     DW 0x10       ; Operand 2
+     DW 0x1        ; Operation: Subtraction
+     DW 0x1F4      ; Operand 1
+     DW 0xFFFFFD44 ; Operand 2
+     DW 0x2        ; Operation: Multiplication
+     DW 0xFFFFFFFE ; Operand 1
+     DW 0xA        ; Operand 2
+     DW 0x3        ; Operation: Division
+     DW 0xFFFFF000 ; Operand 1
+     DW 0xFFFFFFC0 ; Operand 2
+     DW 0x88888888 ; End marker (signals end of operations)
+
+     ORG 0x2000
+     DW 0
+     DW 0
+     DW 0
+     DW 0
+     DW 0xFFFFFFFF
+

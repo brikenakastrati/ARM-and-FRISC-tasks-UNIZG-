@@ -1,0 +1,214 @@
+        B START                ; Jump to START
+
+        ORG 0x18               ; Interrupt vector for IRQ
+        B IRQ                  ; Jump to RTC interrupt handler
+
+START
+        MSR CPSR, #0b11010010  ; Switch to IRQ mode
+        MOV SP, #0x2000        ; Initialize IRQ stack pointer (R13_irq)
+
+        MSR CPSR, #0b11010011  ; Switch to SVC mode
+        MOV SP, #0xFC00        ; Initialize SVC stack pointer (R13_svc)
+
+        MRS R7, CPSR           ; Read CPSR to modify IRQ disable bit
+        BIC R7, R7, #0x80      ; Clear IRQ disable bit (bit 7)
+        MSR CPSR, R7           ; Write back to CPSR
+
+        LDR R6, RTC            ; RTC base address
+        LDR R5, GP1            ; GPIO1 (port A) base address
+        ADD R5, R5, #4         ; Offset to GPIO1 port B for LCD
+        LDR R4, GP2            ; GPIO2 (port A) base address
+
+        MOV R8, #0b11100000    ; Configure LEDs as outputs in GPIO2 port A
+        STR R8, [R4, #0x8]     ; Write to PA_DDR
+
+        MOV R8, #0             ; Reset RTC counter
+        STR R8, [R6, #0xC]     ; Clear Load Register
+        LDR R8, TMR            ; Load timer period
+        STR R8, [R6, #0x4]     ; Set RTC Match Register for 10-second intervals
+
+        BL WEL                ; Display "WEL" state
+
+BTN_WAIT
+        LDR R8, [R4]           ; Read GPIO2 port A (button state)
+        CMP R8, #0            ; Check if bit 0 (button) is pressed
+        BEQ BTN_WAIT           ; Loop until button is pressed
+
+        BL ST_HT               ; "HEATING"
+        BL DELAY               ; Wait 10 seconds
+
+        BL ST_CF               ; "COFFEE"
+        BL DELAY               ; Wait 10 seconds
+
+        BL ST_ML               ; "MILK"
+        BL DELAY               ; Wait 10 seconds
+
+        BL ST_DN               ; "DONE"
+        BL DELAY               ; Wait 10 seconds
+        BL WEL
+
+        B BTN_WAIT             ; Restart the cycle
+
+WEL
+        STMFD SP!, {R2, LR}    ; Save registers
+        BL CLR_LCD
+      
+
+        MOV R2, #0             ; Turn off all LEDs
+        STR R2, [R4]           ; Update GPIO2 output register
+
+        ; Display "WEL"
+        MOV R2, #0x57          ; 'W'
+        BL LCD
+        MOV R2, #0x45          ; 'E'
+        BL LCD
+        MOV R2, #0x4C          ; 'L'
+        BL LCD
+        MOV R2, #0x43          ; 'C'
+        BL LCD
+        MOV R2, #0x4F          ; 'O'
+        BL LCD
+        MOV R2, #0x4D          ; 'M'
+        BL LCD
+        MOV R2, #0x45          ; 'E'
+        BL LCD
+        
+        LDMFD SP!, {R2, LR}    ; Restore registers
+        MOV PC, LR             ; Return
+
+ST_HT
+        STMFD SP!, {R2, LR}
+        BL CLR_LCD
+
+        MOV R2, #0b100000      ; Turn on Red LED
+        STR R2, [R4]
+
+        ; Display "HEATING"
+        MOV R2, #0x48          ; 'H'
+        BL LCD
+        MOV R2, #0x45          ; 'E'
+        BL LCD
+        MOV R2, #0x41          ; 'A'
+        BL LCD
+        MOV R2, #0x54          ; 'T'
+        BL LCD
+        MOV R2, #0x49          ; 'I'
+        BL LCD
+        MOV R2, #0x4E          ; 'N'
+        BL LCD
+        MOV R2, #0x47          ; 'G'
+        BL LCD
+        LDMFD SP!, {R2, LR}
+        MOV PC, LR
+
+ST_CF
+        STMFD SP!, {R2, LR}
+        BL CLR_LCD
+
+        MOV R2, #0b1000000     ; Turn on Yellow LED
+        STR R2, [R4]
+
+        ; Display "COFFEE"
+        MOV R2, #0x43          ; 'C'
+        BL LCD
+        MOV R2, #0x4F          ; 'O'
+        BL LCD
+        MOV R2, #0x46          ; 'F'
+        BL LCD
+        MOV R2, #0x46          ; 'F'
+        BL LCD
+        MOV R2, #0x45          ; 'E'
+        BL LCD
+        MOV R2, #0x45          ; 'E'
+        BL LCD
+        LDMFD SP!, {R2, LR}
+        MOV PC, LR
+
+ST_ML
+        STMFD SP!, {R2, LR}
+        BL CLR_LCD
+
+        MOV R2, #0b10000000    ; Turn on Green LED
+        STR R2, [R4]
+
+        ; Display "MILK"
+        MOV R2, #0x4D          ; 'M'
+        BL LCD
+        MOV R2, #0x49          ; 'I'
+        BL LCD
+        MOV R2, #0x4C          ; 'L'
+        BL LCD
+        MOV R2, #0x4B          ; 'K'
+        BL LCD
+        LDMFD SP!, {R2, LR}
+        MOV PC, LR
+
+ST_DN
+      STMFD SP!, {R2, LR}      ; Save registers
+      BL CLR_LCD                ; Clear the display
+
+      MOV R2, #0b11100000      ; Turn on all LEDs
+      STR R2, [R4]             ; Update GPIO2 output register
+
+                              ; Display "DONE"
+      MOV R2, #0x44            ; 'D'
+      BL LCD
+      MOV R2, #0x4F            ; 'O'
+      BL LCD
+      MOV R2, #0x4E            ; 'N'
+      BL LCD
+      MOV R2, #0x45            ; 'E'
+      BL LCD
+
+      LDMFD SP!, {R2, LR}      ; Restore registers
+      MOV PC, LR               ; Return
+
+
+DELAY
+      MOV R2, #0             ; Reset RTC
+      STR R2, [R6, #0xC]     ; Clear Load Register
+      STR R2, [R6, #0x08]    ; Clear Status Register
+      MOV R2, #1             ; Enable RTC
+      STR R2, [R6, #0x10]    ; Activate RTC
+WAITD
+      LDR R2, [R6, #0x08]    ; Check RTC status
+      TST R2, #1             ; Check if match occurred
+      BEQ WAITD              ; Wait for interrupt
+      MOV R2, #0             ; Reset RTC again
+      STR R2, [R6, #0x08]    ; Acknowledge interrupt
+      STR R2, [R6, #0xC]     ; Clear Load Register
+      MOV PC, LR             ; Return
+
+
+IRQ
+    STMFD SP!, {R0, R1}    ; Save context
+    LDR R0, RTC            ; RTC base address
+    MOV R1, #0             ; Reset counter
+    STR R1, [R0, #8]       ; Acknowledge interrupt
+    STR R1, [R0, #0xC]     ; Clear Load Register
+    STR R1, [R0, #0x10]    ; Disable RTC (optional if not continuous)
+    LDMFD SP!, {R0, R1}
+    SUBS PC, LR, #4        ; Return from interrupt
+
+LCD
+        STMFD SP!, {R7}        ; Save R7
+        AND R7, R2, #0x7F      ; Clear bit 7
+        STRB R7, [R5]          ; Write character to LCD
+        ORR R7, R7, #0x80      ; Set bit 7
+        STRB R7, [R5]
+        AND R7, R7, #0x7F      ; Clear bit 7 again
+        STRB R7, [R5]
+        LDMFD SP!, {R7}        ; Restore R7
+        MOV PC, LR             ; Return
+CLR_LCD
+        STMFD SP!, {R2, LR}    ; Save R2 and the return address (LR)
+        MOV R2, #0x0D          ; Load the LCD clear command into R2
+        BL LCD                 ; Call the LCD subroutine to execute the command
+        LDMFD SP!, {R2, LR}    ; Restore R2 and the return address
+        MOV PC, LR             ; Return to the caller
+
+             
+GP1     DW 0xFFFF0F00
+GP2     DW 0xFFFF0B00
+RTC     DW 0xFFFF0E00
+TMR     DW 2650  

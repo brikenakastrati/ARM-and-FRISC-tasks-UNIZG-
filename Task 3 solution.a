@@ -1,0 +1,80 @@
+        org 0
+
+main      
+        addi sp, x0, 0x100              ; Initialize stack pointer (SP) to 0x100
+        slli sp, sp, 8                  ; Shift SP to 8-byte aligned address
+
+        lui x4, %hi(0xFFFF0B00)         ; Load GPIO2 base address (Switch/Button port)
+        addi x4, x4, %lo(0xFFFF0B00)    ; Complete GPIO2 address (switch/button port)
+        lui x5, %hi(0xFFFF0F00)         ; Load GPIO1 base address (LCD port)
+        addi x5, x5, %lo(0xFFFF0F00)    ; Complete GPIO1 address (LCD port)
+
+        addi x7, x0, 0                  ; Initialize counter (x7) to 0
+        addi x8, x0, 13                 ; Set max counter value to 13
+
+wait_for_input    
+        lw x6, 0(x4)                    ; Read GPIO2 Port A (button/switch state)
+        andi x6, x6, 2                  ; Check if switch (bit 1) is pressed
+        beq x6, x0, wait_for_input      ; If switch is open, keep waiting
+        lw x6, 0(x4)                    ; Read GPIO2 Port A again (button check)
+        andi x6, x6, 1                  ; Check if button (bit 0) is pressed
+        beq x6, x0, wait_for_input      ; If button is not pressed, keep waiting
+         
+        addi x7, x7, 1                  ; Increment the counter
+            
+        ; Clear LCD and reset cursor position
+        addi a0, x0, 0x0D               ; Send LCD clear command
+        jal ra, WriteToLCD              ; Call function to clear LCD
+
+        blt x7, x8, display_counter     ; If counter is less than 13, display it
+        addi x7, x0, 1                  ; Reset counter to 1 after 13
+
+display_counter       
+        add x17, x7, x0                 ; Move counter value (x7) to x17
+        jal ra, ExtractTens             ; Extract tens and units digits
+        beq x10, x0, display_units      ; If tens = 0, display units only
+        
+        add a0, x10, x0                 ; Load tens digit into a0
+        addi a0, a0, 0x30               ; Convert tens digit to ASCII
+        jal ra, WriteToLCD              ; Display tens digit on LCD
+        
+display_units   
+        add a0, x11, x0                 ; Load units digit into a0
+        addi a0, a0, 0x30               ; Convert units digit to ASCII
+        jal ra, WriteToLCD              ; Display units digit on LCD
+
+        addi a0, x0, 0x0A               ; Newline character (0x0A) for formatting
+        jal ra, WriteToLCD              ; Write newline to LCD
+
+        j wait_for_input                ; Jump back to waiting for input
+     
+ExtractTens     
+        addi sp, sp, -4                 ; Save return address on stack
+        sw ra, 0(sp)                    ; Store return address to stack
+            
+        addi x10, x0, 0                 ; Initialize tens = 0
+        add x11, x17, x0                ; Initialize units = counter value (from x17)
+            
+        addi x9, x0, 10                 ; Compare units with 10
+        blt x11, x9, ExtractTens_end    ; If units < 10, skip tens extraction
+            
+        addi x10, x0, 1                 ; Set tens = 1
+        addi x11, x11, -10              ; Subtract 10 from units
+            
+ExtractTens_end    
+        lw ra, 0(sp)                    ; Restore return address from stack
+        addi sp, sp, 4                  ; Restore stack pointer
+        jalr x0, 0(ra)                  ; Return to caller
+            
+WriteToLCD      
+        andi x14, a0, 0x7F              ; Mask the MSB (clear top bit)
+        
+        sb x14, 4(x5)                   ; Send data to LCD (store byte)
+        
+        ori x14, x14, 0x80              ; Set the E bit
+        sb x14, 4(x5)                   ; Send data with E=1
+        
+        andi x14, x14, 0x7F             ; Clear E bit
+        sb x14, 4(x5)                   ; Send data with E=0
+
+        jalr x0, 0(ra)                  ; Return from LCD write function
